@@ -32,7 +32,7 @@ type AuditEntry = {
   createdAt: string;
 };
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8088';
 
 function App() {
   const [courses, setCourses] = useState<Course[]>([]);
