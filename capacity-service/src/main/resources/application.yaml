@@ -1,0 +1,26 @@
+server:
+  port: ${SERVER_PORT:4092}
+
+spring:
+  application:
+    name: capacity-service
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:capacitydb}
+    username: ${DB_USER:campusflow}
+    password: ${DB_PASSWORD:campusflow}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus

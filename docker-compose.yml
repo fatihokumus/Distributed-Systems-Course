@@ -1,33 +1,68 @@
 services:
-  postgres:
+  backend-db:
     image: postgres:15
-    container_name: campusflow-postgres
+    container_name: campusflow-backend-db
     environment:
       POSTGRES_DB: campusflow
       POSTGRES_USER: campusflow
       POSTGRES_PASSWORD: campusflow
     ports:
-      - "5454:5432"
+      - "5456:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U campusflow -d campusflow"]
       interval: 5s
       timeout: 5s
       retries: 10
 
+  capacity-db:
+    image: postgres:15
+    container_name: campusflow-capacity-db
+    environment:
+      POSTGRES_DB: capacitydb
+      POSTGRES_USER: campusflow
+      POSTGRES_PASSWORD: campusflow
+    ports:
+      - "5455:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U campusflow -d capacitydb"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  capacity-service:
+    build:
+      context: ./capacity-service
+    container_name: campusflow-capacity
+    depends_on:
+      capacity-db:
+        condition: service_healthy
+    environment:
+      DB_HOST: capacity-db
+      DB_PORT: 5432
+      DB_NAME: capacitydb
+      DB_USER: campusflow
+      DB_PASSWORD: campusflow
+      SERVER_PORT: 4092
+    ports:
+      - "4092:4092"
+
   backend:
     build:
       context: ./backend
     container_name: campusflow-backend
     depends_on:
-      postgres:
+      backend-db:
         condition: service_healthy
+      capacity-service:
+        condition: service_started
     environment:
-      DB_HOST: postgres
+      DB_HOST: backend-db
       DB_PORT: 5432
       DB_NAME: campusflow
       DB_USER: campusflow
       DB_PASSWORD: campusflow
       SERVER_PORT: 4091
+      CAPACITY_BASE_URL: http://capacity-service:4092
     ports:
       - "4091:4091"
 

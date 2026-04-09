@@ -1,6 +1,5 @@
 package com.campusflow.monolith.enrollment;
 
-import com.campusflow.monolith.course.Course;
 import com.campusflow.monolith.student.Student;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -27,9 +26,8 @@ public class Enrollment {
     @JoinColumn(name = "student_id", nullable = false)
     private Student student;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "course_id", nullable = false)
-    private Course course;
+    @Column(name = "course_code", nullable = false)
+    private String courseCode;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)
@@ -41,10 +39,10 @@ public class Enrollment {
     protected Enrollment() {
     }
 
-    public Enrollment(UUID id, Student student, Course course, EnrollmentStatus status, Instant createdAt) {
+    public Enrollment(UUID id, Student student, String courseCode, EnrollmentStatus status, Instant createdAt) {
         this.id = id;
         this.student = student;
-        this.course = course;
+        this.courseCode = courseCode;
         this.status = status;
         this.createdAt = createdAt;
     }
@@ -64,8 +62,8 @@ public class Enrollment {
         return student;
     }
 
-    public Course getCourse() {
-        return course;
+    public String getCourseCode() {
+        return courseCode;
     }
 
     public EnrollmentStatus getStatus() {

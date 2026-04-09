@@ -32,35 +32,36 @@ public class EnrollmentController {
     }
 
     @PostMapping
-    public ResponseEntity<?> enroll(
-            @Valid @RequestBody EnrollmentRequest request,
-            @RequestHeader("X-Request-Id") String requestId) {
+public ResponseEntity<?> enroll(
+        @Valid @RequestBody EnrollmentRequest request,
+        @RequestHeader("X-Request-Id") String requestId,
+        @RequestHeader(value = "X-Correlation-Id", required = false) String correlationId) {
 
-        var existing = idempotencyService.find(requestId);
+    var existing = idempotencyService.find(requestId);
 
-        if (existing.isPresent()) {
-            return ResponseEntity
-                    .status(existing.get().getResponseStatus())
-                    .body(existing.get().getResponseBody());
-        }
-
-        EnrollmentResponse response = enrollmentService.enroll(request);
-
-        HttpStatus status = (response.status() == EnrollmentStatus.CONFIRMED)
-                ? HttpStatus.CREATED
-                : HttpStatus.CONFLICT;
-
-        String responseBody = response.toString();
-        idempotencyService.save(requestId, status.value(), responseBody);
-
-        if (response.status() == EnrollmentStatus.CONFIRMED) {
-            return ResponseEntity
-                    .created(URI.create("/api/v1/enrollments/" + response.enrollmentId()))
-                    .body(response);
-        }
-
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
+    if (existing.isPresent()) {
+        return ResponseEntity
+                .status(existing.get().getResponseStatus())
+                .body(existing.get().getResponseBody());
     }
+
+    EnrollmentResponse response = enrollmentService.enroll(request, correlationId);
+
+    HttpStatus status = (response.status() == EnrollmentStatus.CONFIRMED)
+            ? HttpStatus.CREATED
+            : HttpStatus.CONFLICT;
+
+    String responseBody = response.toString();
+    idempotencyService.save(requestId, status.value(), responseBody);
+
+    if (response.status() == EnrollmentStatus.CONFIRMED) {
+        return ResponseEntity
+                .created(URI.create("/api/v1/enrollments/" + response.enrollmentId()))
+                .body(response);
+    }
+
+    return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
+}
 
     @GetMapping
     public List<StudentEnrollmentResponse> getStudentEnrollments(

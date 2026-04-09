@@ -15,7 +15,7 @@ CREATE TABLE courses (
 CREATE TABLE enrollments (
     id UUID PRIMARY KEY,
     student_id UUID NOT NULL REFERENCES students(id),
-    course_id UUID NOT NULL REFERENCES courses(id),
+    course_code VARCHAR(64) NOT NULL,
     status VARCHAR(32) NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -30,6 +30,7 @@ CREATE TABLE audit_entries (
 );
 
 CREATE INDEX idx_enrollments_student_id ON enrollments(student_id);
+CREATE INDEX idx_enrollments_course_code ON enrollments(course_code);
 CREATE INDEX idx_audit_created_at ON audit_entries(created_at DESC);
 
 INSERT INTO courses (id, code, name, capacity, enrolled_count) VALUES

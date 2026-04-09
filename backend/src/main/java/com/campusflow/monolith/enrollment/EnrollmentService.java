@@ -1,12 +1,12 @@
 package com.campusflow.monolith.enrollment;
+
+import com.campusflow.monolith.audit.AuditEntry;
+import com.campusflow.monolith.audit.AuditEntryRepository;
+import com.campusflow.monolith.capacityclient.CapacityClient;
+import com.campusflow.monolith.capacityclient.CapacityUnavailableException;
 import com.campusflow.monolith.deadline.DeadlineContext;
 import com.campusflow.monolith.deadline.DeadlineExceededException;
 import com.campusflow.monolith.deadline.DeadlineHolder;
-import com.campusflow.monolith.audit.AuditEntry;
-import com.campusflow.monolith.audit.AuditEntryRepository;
-import com.campusflow.monolith.common.CourseNotFoundException;
-import com.campusflow.monolith.course.Course;
-import com.campusflow.monolith.course.CourseRepository;
 import com.campusflow.monolith.student.Student;
 import com.campusflow.monolith.student.StudentRepository;
 import jakarta.transaction.Transactional;
@@ -24,117 +24,144 @@ public class EnrollmentService {
     private static final Logger log = LoggerFactory.getLogger(EnrollmentService.class);
 
     private final StudentRepository studentRepository;
-    private final CourseRepository courseRepository;
     private final EnrollmentRepository enrollmentRepository;
     private final AuditEntryRepository auditEntryRepository;
+    private final CapacityClient capacityClient;
 
     public EnrollmentService(StudentRepository studentRepository,
-                             CourseRepository courseRepository,
                              EnrollmentRepository enrollmentRepository,
-                             AuditEntryRepository auditEntryRepository) {
+                             AuditEntryRepository auditEntryRepository,
+                             CapacityClient capacityClient) {
         this.studentRepository = studentRepository;
-        this.courseRepository = courseRepository;
         this.enrollmentRepository = enrollmentRepository;
         this.auditEntryRepository = auditEntryRepository;
-    }
-private void checkDeadline() {
-    DeadlineContext context = DeadlineHolder.get();
-
-    if (context == null) {
-        return;
+        this.capacityClient = capacityClient;
     }
 
-    if (context.isExpired()) {
-        throw new DeadlineExceededException("Request deadline exceeded");
-    }
-}
-
-private long remainingMs() {
-    DeadlineContext context = DeadlineHolder.get();
-
-    if (context == null) {
-        return Long.MAX_VALUE;
-    }
-
-    return context.getRemainingTimeMs();
-}
-
-private void sleep(long ms) {
-    try {
-        Thread.sleep(ms);
-    } catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
-        throw new RuntimeException(e);
-    }
-}
     @Transactional
-    
-public EnrollmentResponse enroll(EnrollmentRequest request) {
-    checkDeadline();
-    System.out.println("Step 1 - request start, remaining=" + remainingMs());
+    public EnrollmentResponse enroll(EnrollmentRequest request, String correlationId) {
+        checkDeadline();
 
-    Student student = studentRepository.findByStudentNo(request.studentNo())
-            .orElseGet(() -> studentRepository.save(
-                    new Student(UUID.randomUUID(), request.studentNo(), "Unknown")
-            ));
+        String effectiveCorrelationId =
+                (correlationId == null || correlationId.isBlank())
+                        ? UUID.randomUUID().toString()
+                        : correlationId;
 
-    sleep(700);
-    checkDeadline();
-    System.out.println("Step 2 - after student lookup/save, remaining=" + remainingMs());
+        log.info("[ID: {}] Enrollment started for studentNo={}, courseCode={}",
+                effectiveCorrelationId, request.studentNo(), request.courseCode());
 
-    Course course = courseRepository.findByCodeForUpdate(request.courseCode())
-            .orElseThrow(() -> new CourseNotFoundException(request.courseCode()));
+        Student student = studentRepository.findByStudentNo(request.studentNo())
+                .orElseGet(() -> studentRepository.save(
+                        new Student(UUID.randomUUID(), request.studentNo(), "Unknown")
+                ));
 
-    sleep(700);
-    checkDeadline();
-    System.out.println("Step 3 - after course lookup, remaining=" + remainingMs());
+        sleep(700);
+        checkDeadline();
 
-    boolean confirmed = course.getEnrolledCount() < course.getCapacity();
-    EnrollmentStatus status = confirmed ? EnrollmentStatus.CONFIRMED : EnrollmentStatus.REJECTED;
+        boolean hasCapacity = capacityClient.hasCapacity(
+                request.courseCode(),
+                effectiveCorrelationId
+        );
 
-    if (confirmed) {
-        course.setEnrolledCount(course.getEnrolledCount() + 1);
-        courseRepository.save(course);
+        if (!hasCapacity) {
+            log.info("[ID: {}] Capacity unavailable/full or circuit breaker fallback for courseCode={}",
+                    effectiveCorrelationId, request.courseCode());
+
+            return saveEnrollmentAndAudit(
+                    student,
+                    request,
+                    EnrollmentStatus.REJECTED,
+                    "Capacity unavailable or course is full."
+            );
+        }
+
+        try {
+            capacityClient.increase(
+                    request.courseCode(),
+                    effectiveCorrelationId
+            );
+        } catch (CapacityUnavailableException e) {
+            log.warn("[ID: {}] Capacity increase failed in degraded mode for courseCode={}",
+                    effectiveCorrelationId, request.courseCode());
+
+            return saveEnrollmentAndAudit(
+                    student,
+                    request,
+                    EnrollmentStatus.REJECTED,
+                    "Capacity service unavailable during confirmation."
+            );
+        }
+
+        sleep(700);
+        checkDeadline();
+
+        log.info("[ID: {}] Enrollment confirmed for studentNo={}, courseCode={}",
+                effectiveCorrelationId, request.studentNo(), request.courseCode());
+
+        return saveEnrollmentAndAudit(
+                student,
+                request,
+                EnrollmentStatus.CONFIRMED,
+                "Enrollment confirmed."
+        );
     }
 
-    sleep(700);
-    checkDeadline();
-    System.out.println("Step 4 - after capacity check/update, remaining=" + remainingMs());
+    private EnrollmentResponse saveEnrollmentAndAudit(Student student,
+                                                      EnrollmentRequest request,
+                                                      EnrollmentStatus status,
+                                                      String message) {
+        Enrollment enrollment = enrollmentRepository.save(
+                new Enrollment(
+                        UUID.randomUUID(),
+                        student,
+                        request.courseCode(),
+                        status,
+                        Instant.now()
+                )
+        );
 
-    Enrollment enrollment = enrollmentRepository.save(
-            new Enrollment(UUID.randomUUID(), student, course, status, Instant.now())
-    );
+        String eventType = (status == EnrollmentStatus.CONFIRMED)
+                ? "ENROLLMENT_CONFIRMED"
+                : "ENROLLMENT_REJECTED";
 
-    checkDeadline();
-    System.out.println("Step 5 - after enrollment save, remaining=" + remainingMs());
+        auditEntryRepository.save(new AuditEntry(
+                UUID.randomUUID(),
+                eventType,
+                "Enrollment",
+                enrollment.getId(),
+                payloadFor(request.studentNo(), request.courseCode(), status.name()),
+                Instant.now()
+        ));
 
-    String eventType = confirmed ? "ENROLLMENT_CONFIRMED" : "ENROLLMENT_REJECTED";
-    String message = confirmed ? "Enrollment confirmed." : "Course capacity is full.";
-    String payload = payloadFor(request.studentNo(), request.courseCode(), status.name());
+        return new EnrollmentResponse(
+                enrollment.getId(),
+                status,
+                request.studentNo(),
+                request.courseCode(),
+                message
+        );
+    }
 
-    auditEntryRepository.save(new AuditEntry(
-            UUID.randomUUID(),
-            eventType,
-            "Enrollment",
-            enrollment.getId(),
-            payload,
-            Instant.now()
-    ));
+    private void checkDeadline() {
+        DeadlineContext context = DeadlineHolder.get();
+        if (context != null && context.isExpired()) {
+            throw new DeadlineExceededException("Request deadline exceeded");
+        }
+    }
 
-    checkDeadline();
-    System.out.println("Step 6 - after audit save, remaining=" + remainingMs());
+    private void sleep(long ms) {
+        try {
+            Thread.sleep(ms);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
 
-    log.info("Enrollment attempt studentNo={}, courseCode={}, result={}",
-            request.studentNo(), request.courseCode(), status);
-
-    return new EnrollmentResponse(
-            enrollment.getId(),
-            status,
-            request.studentNo(),
-            request.courseCode(),
-            message
-    );
-}
+    private String payloadFor(String studentNo, String courseCode, String status) {
+        return "{\"studentNo\":\"" + studentNo +
+                "\",\"courseCode\":\"" + courseCode +
+                "\",\"status\":\"" + status + "\"}";
+    }
 
     @Transactional
     public List<StudentEnrollmentResponse> getEnrollmentsByStudentNo(String studentNo) {
@@ -142,16 +169,11 @@ public EnrollmentResponse enroll(EnrollmentRequest request) {
                 .map(student -> enrollmentRepository.findByStudentOrderByCreatedAtDesc(student).stream()
                         .map(enrollment -> new StudentEnrollmentResponse(
                                 enrollment.getId(),
-                                enrollment.getCourse().getCode(),
+                                enrollment.getCourseCode(),
                                 enrollment.getStatus(),
                                 enrollment.getCreatedAt()
                         ))
                         .toList())
                 .orElse(List.of());
     }
-
-    private String payloadFor(String studentNo, String courseCode, String status) {
-        return "{\"studentNo\":\"" + studentNo + "\",\"courseCode\":\"" + courseCode + "\",\"status\":\"" + status + "\"}";
-    }
-
 }

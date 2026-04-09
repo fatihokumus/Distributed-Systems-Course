@@ -21,14 +21,27 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,prometheus
-  metrics:
-    distribution:
-      percentiles-histogram:
-        http.server.requests: true
-      percentiles:
-        http.server.requests: 0.5,0.95,0.99
+        include: health,info,metrics,prometheus,circuitbreakers,circuitbreakerevents
+  health:
+    circuitbreakers:
+      enabled: true
 
+resilience4j:
+  circuitbreaker:
+    circuitBreakerAspectOrder: 1
+    instances:
+      capacityService:
+        registerHealthIndicator: true
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 5
+        minimumNumberOfCalls: 3
+        permittedNumberOfCallsInHalfOpenState: 2
+        waitDurationInOpenState: 10s
+        failureRateThreshold: 50
+        eventConsumerBufferSize: 20
+
+  retry:
+    retryAspectOrder: 2
 
 logging:
   level:
@@ -43,3 +56,6 @@ lab:
     enabled: true
     jitterMs: 100
     delayMs: 10
+
+capacity:
+  base-url: ${CAPACITY_BASE_URL:http://localhost:4092}
