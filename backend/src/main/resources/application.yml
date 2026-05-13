@@ -16,6 +16,21 @@ spring:
           time_zone: UTC
   flyway:
     enabled: true
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:kafka:29092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        spring.json.add.type.headers: false
+    consumer:
+      group-id: backend-service
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "com.campusflow.monolith.events,com.campusflow.events,*"
+        spring.json.use.type.headers: false
 
 management:
   endpoints:
@@ -39,7 +54,6 @@ resilience4j:
         waitDurationInOpenState: 10s
         failureRateThreshold: 50
         eventConsumerBufferSize: 20
-
   retry:
     retryAspectOrder: 2
 
@@ -59,3 +73,14 @@ lab:
 
 capacity:
   base-url: ${CAPACITY_BASE_URL:http://localhost:4092}
+
+app:
+  kafka:
+    topics:
+      enrollment-requested: enrollment-requested
+      enrollment-confirmed: enrollment-confirmed
+      enrollment-rejected: enrollment-rejected
+
+enrollment:
+  flow:
+    mode: ${ENROLLMENT_FLOW_MODE:async}

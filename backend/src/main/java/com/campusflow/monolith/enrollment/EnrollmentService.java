@@ -176,4 +176,31 @@ public class EnrollmentService {
                         .toList())
                 .orElse(List.of());
     }
+
+    /**
+     * Async akış için: Enrollment kaydını PENDING statüsünde oluşturur.
+     * CapacityClient ÇAĞRILMAZ — cevap Kafka üzerinden gelecektir.
+     * requestId, idempotency ve consumer eşleştirmesi için kaydedilir.
+     */
+    @Transactional
+    public Enrollment createPendingEnrollment(EnrollmentRequest request, String requestId) {
+        log.info("Creating PENDING enrollment for studentNo={}, courseCode={}, requestId={}",
+                request.studentNo(), request.courseCode(), requestId);
+
+        Student student = studentRepository.findByStudentNo(request.studentNo())
+                .orElseGet(() -> studentRepository.save(
+                        new Student(UUID.randomUUID(), request.studentNo(), "Unknown")
+                ));
+
+        Enrollment enrollment = new Enrollment(
+                UUID.randomUUID(),
+                student,
+                request.courseCode(),
+                EnrollmentStatus.PENDING,
+                Instant.now()
+        );
+        enrollment.setRequestId(requestId);
+
+        return enrollmentRepository.save(enrollment);
+    }
 }

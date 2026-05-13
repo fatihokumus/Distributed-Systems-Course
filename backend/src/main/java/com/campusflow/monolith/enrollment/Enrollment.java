@@ -36,6 +36,9 @@ public class Enrollment {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
+    @Column(name = "request_id", length = 64)
+    private String requestId;
+
     protected Enrollment() {
     }
 
@@ -72,5 +75,17 @@ public class Enrollment {
 
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    public String getRequestId() {
+        return requestId;
+    }
+
+    public void setRequestId(String requestId) {
+        this.requestId = requestId;
+    }
+
+    public void setStatus(EnrollmentStatus status) {
+        this.status = status;
     }
 }
